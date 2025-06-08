@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>Track and Field (Athletics) Score ⇔ Record Viewer（陸上競技 スコア⇔記録 ビューア）</title>
+  <style>
+    body{font-family:sans-serif;margin:2em}
+    input,select,button{margin:.4em;padding:.4em;font-size:1em}
+    table{border-collapse:collapse;margin-top:1em;table-layout:auto;white-space:nowrap}
+    th,td{border:1px solid #ccc;padding:.3em .6em;text-align:right;white-space:nowrap}
+    th{background:#eee}
+  </style>
+</head>
+<body>
+  <h1>Track and Field (Athletics) Record ⇔ Score Viewer（陸上競技 記録⇔スコア ビューア）</h1>
+
+  <p>View track and field performances and scores.This app is based on the official <a href="https://worldathletics.org/download/download?filename=4f77dcb3-2945-4c58-ad8b-955a999b13e8.pdf&urlslug=World%20Athletics%20Scoring%20Tables%20of%20Athletics" target="_blank">
+  World Athletics Scoring Tables of Athletics</a> (official document by World Athletics).</p>
+  <p>(陸上競技の記録とスコアを相互に参照できます。このアプリは <a href="https://worldathletics.org/download/download?filename=4f77dcb3-2945-4c58-ad8b-955a999b13e8.pdf&urlslug=World%20Athletics%20Scoring%20Tables%20of%20Athletics" target="_blank">
+  World Athletics Scoring Tables of Athletics</a>（<strong>World Athletics 公式資料</strong>）に基づいています。)</p>
+
+
+
+  <!-- 性別選択 -->
+  <label>Gender（性別）:</label>
+  <select id="genderSel">
+    <option value="men">Men（男子）</option>
+    <option value="women">Women（女子）</option>
+  </select>
+
+  <!-- 記録→スコア -->
+  <h2>① Record ➜ Score（記録 ➜ スコア）</h2>
+  <form id="recordForm">
+    <label>Event（種目）:</label>
+    <select id="eventSel"></select>
+    <label>Record（記録）:</label>
+    <input type="text" id="recordVal" placeholder="e.g. 1:28.58 or 12.34（例: 1:28.58 または 12.34）" required>
+    <button type="submit">Search（検索）</button>
+  </form>
+  <div id="scoreArea"></div>
+
+  <!-- スコア→記録 -->
+  <h2>② Score ➜ Record（スコア ➜ 記録） (±5pt)</h2>
+  <form id="scoreForm">
+    <label>Score（スコア）:</label>
+    <input type="number" name="score" required>
+    <button type="submit">View（表示）</button>
+  </form>
+  <div id="recordArea"></div>
+
+<script>
+  const genderSel = document.getElementById("genderSel");
+  let scoreTable = [], eventOrder = [];
+
+  async function safeFetch(url){
+    const res = await fetch(url);
+    if(!res.ok) throw new Error(`${url}: ${res.status}`);
+    return res.json();
+  }
+
+  async function loadData(g){
+    try{
+      [scoreTable, eventOrder] = await Promise.all([
+        safeFetch(`/static/score_table_${g}.json`),
+        safeFetch(`/static/event_order_${g}.json`)
+      ]);
+      const uniq = new Set();
+      eventOrder = eventOrder.filter(e=>e&&e!=="score"&&!uniq.has(e)&&uniq.add(e));
+      renderEventOptions();
+    }catch(err){alert("読込エラー:"+err.message);}
+  }
+  function renderEventOptions(){
+    const sel = document.getElementById("eventSel");
+    sel.innerHTML="";
+    eventOrder.forEach(ev=>{
+      const opt=document.createElement("option");opt.value=ev;opt.textContent=ev;sel.appendChild(opt);
+    });
+  }
+  genderSel.addEventListener("change",()=>loadData(genderSel.value));
+  window.onload=()=>loadData("men");
+
+  document.getElementById("scoreForm").addEventListener("submit",async e=>{
+    e.preventDefault();
+    const fd=new FormData(e.target);
+    fd.append("gender",genderSel.value);
+    const res=await fetch("/get_record",{method:"POST",body:fd});
+    const rows=await res.json();
+    const area=document.getElementById("recordArea");
+    area.innerHTML="";
+    if(rows.error){area.textContent=rows.error;return;}
+    if(!rows.length){area.textContent="No data（データなし）";return;}
+
+    const events=eventOrder.filter(ev=>rows.some(r=>r[ev]!=null));
+    const thead=`<thead><tr><th>Score</th>${events.map(e=>`<th>${e}</th>`).join("")}</tr></thead>`;
+    const tbody=rows.map(r=>`<tr><td>${r.score}</td>${events.map(ev=>`<td>${r[ev]??"–"}</td>`).join("")}</tr>`).join("");
+    area.innerHTML=`<table>${thead}<tbody>${tbody}</tbody></table>`;
+  });
+
+  document.getElementById("recordForm").addEventListener("submit",async e=>{
+    e.preventDefault();
+    const event=document.getElementById("eventSel").value;
+    const rec=document.getElementById("recordVal").value.trim();
+    if(!rec){return;}
+    const fd=new FormData();
+    fd.append("event",event);
+    fd.append("record",rec);
+    fd.append("gender",genderSel.value);
+    const res=await fetch("/get_score",{method:"POST",body:fd});
+    const data=await res.json();
+    const area=document.getElementById("scoreArea");
+    area.innerHTML=data.error?`<p style='color:red;'>${data.error}</p>`:`<p><strong>${event}</strong> ${rec} → Score <strong>${data.score}</strong></p>`;
+  });
+</script>
+</body>
+</html>
